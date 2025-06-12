@@ -80,3 +80,7 @@ All actions are logged to `/var/log/maintenance-YYYYMMDD-HHMMSS.log`.
 ## 👤 Author
 
 ### Bocaletto Luca Full-Stack Developer & Linux Enthusiast
+
+## 📄 License
+
+#### This project is released under the GPL License. Fell free to use, modify, and distribute! 
