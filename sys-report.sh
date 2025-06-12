@@ -1,85 +1,85 @@
 #!/usr/bin/env bash
-# sys-report.sh — simple system info report for Debian/Ubuntu
+#
+# maintenance.sh — A simple Debian/Ubuntu system updater & upgrader
+#
+# Usage:
+#   ./maintenance.sh [--update] [--upgrade] [--all] [-h|--help]
+#
+# Options:
+#   --update      Run `apt-get update` to refresh package lists
+#   --upgrade     Run `apt-get upgrade -y` to install available upgrades
+#   --all         Perform both update and upgrade in sequence
+#   -h, --help    Show this help and exit
+#
+# This script requires sudo privileges. It works out-of-the-box
+# on Debian and derivatives (Ubuntu, Mint, etc.) without external deps.
 
-# ─── COLORS ──────────────────────────────────────────────────────────────────
-RED=$(tput setaf 1); GREEN=$(tput setaf 2)
-YELLOW=$(tput setaf 3); BLUE=$(tput setaf 4)
-BOLD=$(tput bold); RESET=$(tput sgr0)
+set -euo pipefail
 
-# ─── HELP ────────────────────────────────────────────────────────────────────
-function usage() {
-  echo "Usage: $0"
-  echo "Prints OS, kernel, uptime, load, CPU, RAM, disk and network info."
+# ─── COLORS ───────────────────────────────────────────────────────────────────
+RED=$(tput setaf 1)      # red for errors
+GREEN=$(tput setaf 2)    # green for success messages
+YELLOW=$(tput setaf 3)   # yellow for warnings
+RESET=$(tput sgr0)       # reset color
+
+# ─── PRINT HELP ───────────────────────────────────────────────────────────────
+usage() {
+  cat <<EOF
+maintenance.sh — A Debian/Ubuntu updater & upgrader
+
+Usage:
+  $0 [--update] [--upgrade] [--all] [-h|--help]
+
+Options:
+  --update      Refresh package database (apt-get update)
+  --upgrade     Install all available upgrades (apt-get upgrade -y)
+  --all         Do update then upgrade
+  -h, --help    Display this help text
+EOF
+  exit 0
+}
+
+# ─── CHECK ROOT ────────────────────────────────────────────────────────────────
+if (( EUID != 0 )); then
+  echo "${RED}Error:${RESET} this script must be run as root."
+  echo "Try: sudo $0"
   exit 1
+fi
+
+# ─── UPDATE FUNCTION ──────────────────────────────────────────────────────────
+do_update() {
+  echo "${YELLOW}[*] Running apt-get update...${RESET}"
+  apt-get update -qq
+  echo "${GREEN}[+] Package lists updated.${RESET}"
 }
 
-# ─── HEADER ──────────────────────────────────────────────────────────────────
-function header() {
-  echo "${BOLD}${BLUE}===== System Report for: $(hostname) =====${RESET}"
+# ─── UPGRADE FUNCTION ─────────────────────────────────────────────────────────
+do_upgrade() {
+  echo "${YELLOW}[*] Running apt-get upgrade...${RESET}"
+  DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
+  echo "${GREEN}[+] All packages upgraded.${RESET}"
 }
 
-# ─── OS & KERNEL ─────────────────────────────────────────────────────────────
-function os_info() {
-  echo "${GREEN}* OS & Kernel:${RESET}"
-  if [ -r /etc/os-release ]; then
-    . /etc/os-release
-    echo "  • Distro: $NAME $VERSION"
-  else
-    echo -n "  • Distro: " && lsb_release -ds 2>/dev/null
-  fi
-  echo "  • Kernel: $(uname -sr)"
-}
+# ─── PARSE ARGUMENTS ──────────────────────────────────────────────────────────
+if [[ $# -eq 0 ]]; then
+  usage
+fi
 
-# ─── UPTIME & LOAD ───────────────────────────────────────────────────────────
-function uptime_load() {
-  local UP=$(awk '{print int($1/86400)"d "int(($1%86400)/3600)"h"}' /proc/uptime)
-  echo "${GREEN}* Uptime & Load:${RESET}"
-  echo "  • Uptime: $UP"
-  echo "  • Load: $(cut -d ' ' -f1-3 /proc/loadavg)"
-}
+for arg in "$@"; do
+  case "$arg" in
+    --update)   STEP_UPDATE=true ;;
+    --upgrade)  STEP_UPGRADE=true ;;
+    --all)      STEP_UPDATE=true; STEP_UPGRADE=true ;;
+    -h|--help)  usage ;;
+    *) 
+      echo "${RED}Error:${RESET} unknown option '$arg'"
+      usage
+      ;;
+  esac
+done
 
-# ─── CPU ──────────────────────────────────────────────────────────────────────
-function cpu_info() {
-  echo "${GREEN}* CPU:${RESET}"
-  awk -F: '/model name/ {print "  • "$2; exit}' /proc/cpuinfo
-  awk -F: '/cpu cores/ {print "  • Cores: "$2; exit}' /proc/cpuinfo
-}
-
-# ─── RAM & SWAP ───────────────────────────────────────────────────────────────
-function mem_info() {
-  echo "${GREEN}* Memory (MiB):${RESET}"
-  awk '/MemTotal|MemFree|SwapTotal|SwapFree/ {
-    gsub(/ kB/,""); printf "  • %s: %.0f\n", $1, $2/1024
-  }' /proc/meminfo
-}
-
-# ─── DISK USAGE ───────────────────────────────────────────────────────────────
-function disk_info() {
-  echo "${GREEN}* Disk Usage:${RESET}"
-  df -h --output=target,pcent,size | sed '1d' | while read t p s; do
-    printf "  • %-10s %6s / %s\n" "$t" "$p" "$s"
-  done
-}
-
-# ─── NETWORK ─────────────────────────────────────────────────────────────────
-function net_info() {
-  echo "${GREEN}* Network Interfaces:${RESET}"
-  ip -o -4 addr show up primary scope global | awk '{print "  • "$2": "$4}'
-}
-
-# ─── MAIN ────────────────────────────────────────────────────────────────────
-if [[ $1 == "-h" || $1 == "--help" ]]; then usage; fi
-
-header
-os_info
-echo
-uptime_load
-echo
-cpu_info
-echo
-mem_info
-echo
-disk_info
-echo
-net_info
-echo "${BOLD}${BLUE}==========================================${RESET}"
+# ─── RUN REQUESTED STEPS ──────────────────────────────────────────────────────
+echo "${GREEN}=== System Maintenance ===${RESET}"
+[[ ${STEP_UPDATE:-false} == true ]]  && do_update
+[[ ${STEP_UPGRADE:-false} == true ]] && do_upgrade
+echo "${GREEN}=== Done ===${RESET}"
